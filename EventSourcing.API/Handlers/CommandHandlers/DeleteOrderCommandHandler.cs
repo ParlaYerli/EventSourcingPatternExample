@@ -15,7 +15,7 @@ namespace EventSourcing.API.Handlers.CommandHandlers
         }
         public async Task<Unit> Handle(DeleteOrderCommand request, CancellationToken cancellationToken)
         {
-            _orderStream.Removed(request.Id);
+            _orderStream.Deleted(request.Id);
             await _orderStream.SaveAsync();
 
             return Unit.Value;

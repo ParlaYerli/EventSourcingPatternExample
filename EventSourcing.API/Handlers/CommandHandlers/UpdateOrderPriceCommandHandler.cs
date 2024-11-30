@@ -15,7 +15,7 @@ namespace EventSourcing.API.Handlers.CommandHandlers
         }
         public async Task<Unit> Handle(UpdateOrderPriceCommand request, CancellationToken cancellationToken)
         {
-            _orderStream.PriceUpdated(request.UpdateOrderPriceModel);
+            _orderStream.PriceChanged(request.UpdateOrderPriceModel);
             await _orderStream.SaveAsync();
 
             return Unit.Value;

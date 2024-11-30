@@ -7,42 +7,29 @@ namespace EventSourcing.API.EventStores
 {
     public class OrderStream : AbstractStream
     {
-        public static string StreamName => "order1234";
-        public static string GroupName => "order1234";
+        public static string StreamName => "OrderStream3";
+        public static string GroupName => "agroup3";
 
-        public OrderStream(IEventStoreConnection connection, IServiceProvider serviceProvider)
-            : base(StreamName, connection, serviceProvider)
+        public OrderStream(IEventStoreConnection eventStoreConnection) : base(StreamName, eventStoreConnection)
         {
         }
 
-        public void Created(CreateOrderModel model)
+        public void Created(CreateOrderModel createProductDto)
         {
-            Events.AddLast(new OrderCreatedEvent
-            {
-                Id = Guid.NewGuid(),
-                Name = model.Name,
-                Price = model.Price,
-                Stock = model.Stock,
-                UserId = model.UserId
-            });
+            Events.AddLast(new OrderCreatedEvent { Id = Guid.NewGuid(), Name = createProductDto.Name, Price = createProductDto.Price, Stock = createProductDto.Stock, UserId = createProductDto.UserId });
         }
-        public void NameUpdated(UpdateOrderNameModel model)
+
+        public void NameChanged(UpdateOrderNameModel changeProductNameDto)
         {
-            Events.AddLast(new OrderNameUpdatedEvent
-            {
-                Id = model.Id,
-                ChangedOrderName = model.Name
-            });
+            Events.AddLast(new OrderNameUpdatedEvent { ChangedOrderName = changeProductNameDto.Name, Id = changeProductNameDto.Id });
         }
-        public void PriceUpdated(UpdateOrderPriceModel model)
+
+        public void PriceChanged(UpdateOrderPriceModel changeProductPriceDto)
         {
-            Events.AddLast(new OrderPriceUpdatedEvent
-            {
-                Id = model.Id,
-                ChangedOrderPrice = model.Price
-            });
+            Events.AddLast(new OrderPriceUpdatedEvent() { ChangedOrderPrice = changeProductPriceDto.Price, Id = changeProductPriceDto.Id });
         }
-        public void Removed(Guid id)
+
+        public void Deleted(Guid id)
         {
             Events.AddLast(new OrderDeletedEvent { Id = id });
         }

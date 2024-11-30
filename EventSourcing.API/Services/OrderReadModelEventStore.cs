@@ -20,9 +20,7 @@ namespace EventSourcing.API.Services
         private readonly ILogger<OrderReadModelEventStore> _logger;
         private readonly IServiceProvider _serviceProvider;
 
-        public OrderReadModelEventStore(IEventStoreConnection eventStoreConnection,
-                                        ILogger<OrderReadModelEventStore> logger,
-                                        IServiceProvider serviceProvider)
+        public OrderReadModelEventStore(IEventStoreConnection eventStoreConnection, ILogger<OrderReadModelEventStore> logger, IServiceProvider serviceProvider)
         {
             _eventStoreConnection = eventStoreConnection;
             _logger = logger;
@@ -31,104 +29,82 @@ namespace EventSourcing.API.Services
 
         public override async Task StartAsync(CancellationToken cancellationToken)
         {
-            await _eventStoreConnection.ConnectToPersistentSubscriptionAsync(OrderStream.StreamName,
-                                                                             OrderStream.GroupName,
-                                                                             EventAppeared,
-                                                                             autoAck: false);
-            _logger.LogInformation("Event Store Persistent Subscription connected.");
+            _logger.LogInformation("OrderReadModelEventStore is starting...");
+            await _eventStoreConnection.ConnectToPersistentSubscriptionAsync(
+                OrderStream.StreamName,
+                OrderStream.GroupName,
+                EventAppeared,
+                (_, reason, exception) =>
+                    _logger.LogError($"Subscription dropped. Reason: {reason}, Exception: {exception?.Message}"),
+                autoAck: false);
+
             await base.StartAsync(cancellationToken);
         }
 
-        public override Task StopAsync(CancellationToken cancellationToken)
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("OrderReadModelEventStore service stopping...");
-            return base.StopAsync(cancellationToken);
+            _logger.LogInformation("OrderReadModelEventStore background task running.");
+            await Task.CompletedTask; 
         }
 
-        protected override Task ExecuteAsync(CancellationToken stoppingToken)
+        private async Task EventAppeared(EventStorePersistentSubscriptionBase arg1, ResolvedEvent arg2)
         {
-            _logger.LogInformation("OrderReadModelEventStore background service running.");
-            return Task.CompletedTask;
-        }
+            using var scope = _serviceProvider.CreateScope(); 
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        private async Task EventAppeared(EventStorePersistentSubscriptionBase subscription, ResolvedEvent resolvedEvent)
-        {
-            try
-            {
-                var metadataType = Encoding.UTF8.GetString(resolvedEvent.Event.Metadata);
-                var eventType = Type.GetType($"{metadataType}, EventSourcing.Common");
-                _logger.LogInformation($"Processing event: {eventType?.Name}");
+            var type = Type.GetType($"{Encoding.UTF8.GetString(arg2.Event.Metadata)}, EventSourcing.Common");
+            _logger.LogInformation($"Processing Message: {type}");
 
-                if (eventType == null)
-                {
-                    _logger.LogWarning("Event type not found in metadata. Skipping event.");
-                    subscription.Fail(resolvedEvent, PersistentSubscriptionNakEventAction.Skip, "Unknown Event Type");
-                    return;
-                }
+            var eventData = Encoding.UTF8.GetString(arg2.Event.Data);
+            var @event = JsonSerializer.Deserialize(eventData, type);
 
-                var eventData = Encoding.UTF8.GetString(resolvedEvent.Event.Data);
-                var @event = JsonSerializer.Deserialize(eventData, eventType);
-
-                using var scope = _serviceProvider.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-                await ProcessEventAsync(@event, dbContext);
-
-                await dbContext.SaveChangesAsync();
-
-                subscription.Acknowledge(resolvedEvent);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error processing event: {ex.Message}", ex);
-                subscription.Fail(resolvedEvent, PersistentSubscriptionNakEventAction.Retry, ex.Message);
-            }
-        }
-
-        private static async Task ProcessEventAsync(object @event, AppDbContext context)
-        {
             Order order = null;
 
             switch (@event)
             {
-                case OrderCreatedEvent orderCreatedEvent:
+                case OrderCreatedEvent createdEvent:
                     order = new Order
                     {
-                        Id = orderCreatedEvent.Id,
-                        Name = orderCreatedEvent.Name,
-                        Price = orderCreatedEvent.Price,
-                        Stock = orderCreatedEvent.Stock,
-                        UserId = orderCreatedEvent.UserId
+                        Name = createdEvent.Name,
+                        Id = createdEvent.Id,
+                        Price = createdEvent.Price,
+                        Stock = createdEvent.Stock,
+                        UserId = createdEvent.UserId
                     };
                     context.Orders.Add(order);
                     break;
 
-                case OrderNameUpdatedEvent nameUpdatedEvent:
-                    order = await context.Orders.FindAsync(nameUpdatedEvent.Id);
+                case OrderNameUpdatedEvent nameChangedEvent:
+                    order = await context.Orders.FindAsync(nameChangedEvent.Id);
                     if (order != null)
-                    {
-                        order.Name = nameUpdatedEvent.ChangedOrderName;
-                    }
+                        order.Name = nameChangedEvent.ChangedOrderName;
                     break;
 
-                case OrderPriceUpdatedEvent priceUpdatedEvent:
-                    order = await context.Orders.FindAsync(priceUpdatedEvent.Id);
+                case OrderPriceUpdatedEvent priceChangedEvent:
+                    order = await context.Orders.FindAsync(priceChangedEvent.Id);
                     if (order != null)
-                    {
-                        order.Price = priceUpdatedEvent.ChangedOrderPrice;
-                    }
+                        order.Price = priceChangedEvent.ChangedOrderPrice;
                     break;
 
                 case OrderDeletedEvent deletedEvent:
                     order = await context.Orders.FindAsync(deletedEvent.Id);
                     if (order != null)
-                    {
                         context.Orders.Remove(order);
-                    }
                     break;
 
                 default:
-                    throw new InvalidOperationException($"Unhandled event type: {@event.GetType().Name}");
+                    _logger.LogWarning($"Unrecognized event type: {type}");
+                    break;
+            }
+
+            if (order != null)
+            {
+                await context.SaveChangesAsync();
+                arg1.Acknowledge(arg2.Event.EventId);
+            }
+            else
+            {
+                _logger.LogWarning($"Event {arg2.Event.EventId} not processed.");
             }
         }
     }

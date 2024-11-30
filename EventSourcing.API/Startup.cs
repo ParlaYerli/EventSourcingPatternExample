@@ -1,5 +1,6 @@
 using EventSourcing.API.Context;
 using EventSourcing.API.EventStores;
+using EventSourcing.API.Services;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -32,12 +33,12 @@ namespace EventSourcing.API
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "EventSourcing.API", Version = "v1" });
             });
-          
+
             services.AddEventStore(Configuration);
             services.AddSingleton<OrderStream>();
 
             services.AddMediatR(Assembly.GetExecutingAssembly());
-            //services.AddHostedService<OrderReadModelEventStore>();
+            services.AddHostedService<OrderReadModelEventStore>();
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)

@@ -15,7 +15,7 @@ namespace EventSourcing.API.Handlers.CommandHandlers
         }
         public async Task<Unit> Handle(UpdateOrderNameCommand request, CancellationToken cancellationToken)
         {
-            _orderStream.NameUpdated(request.UpdateOrderNameModel);
+            _orderStream.NameChanged(request.UpdateOrderNameModel);
             await _orderStream.SaveAsync();
 
             return Unit.Value;
